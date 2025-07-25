@@ -3,8 +3,7 @@ import os
 import pathlib
 import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QListWidget, QHBoxLayout,
-                             QVBoxLayout, QWidget, QPushButton, QProgressBar, QTextEdit, QLabel,
-                             QComboBox)
+                             QVBoxLayout, QWidget, QPushButton, QProgressBar, QTextEdit, QLabel)
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import Qt, QProcess, QTimer
 from plotly.subplots import make_subplots
@@ -37,10 +36,9 @@ class StreamRedirector:
 
 # --- 子进程执行器 ---
 class ExternalScriptWorker:
-    def __init__(self, script_path, working_dir, args=None):
+    def __init__(self, script_path, working_dir):
         self.script_path = script_path
         self.working_dir = working_dir
-        self.args = args or []
         self.process = QProcess()
         self.process.setWorkingDirectory(working_dir)
         self.process.readyReadStandardOutput.connect(self._on_stdout_ready)
@@ -78,7 +76,7 @@ class ExternalScriptWorker:
 
     def run(self):
         debug_print("启动 QProcess:", self.script_path)
-        self.process.start(sys.executable, [self.script_path] + self.args)
+        self.process.start(sys.executable, [self.script_path])
         if not self.process.waitForStarted(5000):
             debug_print("启动脚本失败:", self.process.errorString())
             if self.finished:
@@ -246,11 +244,6 @@ class StockKLineViewer(QMainWindow):
         self.update_progress_bar.setVisible(False)
         self.update_progress_bar.setFormat("更新进度条")
         left_panel_layout.addWidget(self.update_progress_bar)
-        # 策略选择下拉框
-        self.strategy_combo = QComboBox()
-        self.strategy_combo.addItems(["高价股筛选", "均线金叉", "N连板"])
-        left_panel_layout.addWidget(self.strategy_combo)
-        
         self.select_button = QPushButton("选股")
         self.select_button.clicked.connect(self.run_select_script)
         left_panel_layout.addWidget(self.select_button)
@@ -331,8 +324,7 @@ class StockKLineViewer(QMainWindow):
         self.select_button.setEnabled(False)
         project_root = str(pathlib.Path(__file__).parent.parent)
         script_path = os.path.join(project_root, "3_stock_selector.py")
-        selected_strategy = self.strategy_combo.currentText()
-        self.select_process = ExternalScriptWorker(script_path, project_root, [selected_strategy])
+        self.select_process = ExternalScriptWorker(script_path, project_root)
         self.select_process.progress_updated = lambda val: self.select_progress_bar.setValue(val)
         self.select_process.finished = lambda msg: self.on_script_finished(msg, 'select')
         self.select_process.run()
@@ -409,6 +401,8 @@ class StockKLineViewer(QMainWindow):
         debug_print(f"绘制 K 线图: {stock_code}")
         plot_df = df.copy()
         plot_df['日期'] = pd.to_datetime(plot_df['日期'])
+
+        # --- 保持原始日K线数据，只在显示时控制标签密度 ---
 
         price_ma_periods, volume_ma_periods = [5, 10, 20, 30], [5, 10, 20]
         for p in price_ma_periods:
@@ -501,6 +495,16 @@ class StockKLineViewer(QMainWindow):
         stock_name_series = self.stock_pool[self.stock_pool['ts_code'] == stock_code]['name']
         stock_name = stock_name_series.iloc[0] if not stock_name_series.empty else stock_code
 
+        # --- 修正 X 轴标签显示 ---
+        # 计算显示多少个标签，大致是总数除以周数（约22周），每2个标签显示一个
+        num_labels_to_show = max(1, len(plot_df) // 22) # 确保至少显示1个标签
+        # 确保 tickvals 和 ticktext 的长度一致
+        weekly_indices = list(range(0, len(plot_df), num_labels_to_show))
+        
+        # 确保最后一周的日期也被包含，以防被 num_labels_to_show 整除时漏掉
+        if weekly_indices[-1] != len(plot_df) - 1:
+            weekly_indices.append(len(plot_df) - 1)
+
         fig.update_layout(
             title_text=f"{stock_name} ({stock_code})",
             xaxis_rangeslider_visible=False,
@@ -509,6 +513,10 @@ class StockKLineViewer(QMainWindow):
             legend=dict(orientation="h", yanchor="bottom", y=1.2, xanchor="right", x=1),
             xaxis=dict(
                 type='category',
+                tickmode='array',
+                # 使用计算出的索引来选择日期字符串作为标签
+                tickvals=plot_df['日期字符串'].iloc[weekly_indices].tolist(),
+                ticktext=plot_df['日期字符串'].iloc[weekly_indices].tolist(),
             ),
             yaxis=dict(showticklabels=False, showgrid=True, zeroline=False, range=[0, 1.0], fixedrange=False)
         )
@@ -520,7 +528,7 @@ class StockKLineViewer(QMainWindow):
         fig.update_yaxes(showspikes=True, spikemode='across', spikesnap='cursor', spikedash='dot', spikecolor='grey', spikethickness=1)
         fig.update_layout(hovermode='x unified', spikedistance=-1, hoverdistance=-1, dragmode='pan')
 
-        cdn_url = 'file:///D:/python/stock-picker/js/plotly.min.js'
+        cdn_url = 'file:///D:/python/stock-picker/js/plotly.min.js' # 请确认此路径是否正确
         raw_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
         full_html = f"""
         <html><head><meta charset="utf-8"><script src="{cdn_url}"></script></head>

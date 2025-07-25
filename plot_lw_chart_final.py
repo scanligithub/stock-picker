@@ -19,6 +19,8 @@ async def plot_final_humble_chart(stock_code, days_to_plot=250):
     
     df_chart = stock_data.copy()
     df_chart.rename(columns={'日期':'time', '开盘':'open', '最高':'high', '最低':'low', '收盘':'close', '成交量':'volume'}, inplace=True)
+    df_chart['time'] = pd.to_datetime(df_chart['time'])
+    df_chart = df_chart.resample('W', on='time').last().reset_index()
     df_chart['time'] = df_chart['time'].dt.strftime('%Y-%m-%d')
     
     chart = Chart(width=1400, height=800)

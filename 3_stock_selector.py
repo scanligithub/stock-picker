@@ -11,8 +11,7 @@ from utils.data_loader import load_clean_hist_data, get_clean_snapshot_data
 # --- (假设策略和配置部分不变) ---
 try:
     from strategies import STRATEGIES
-    import sys
-selected_strategy = sys.argv[1] if len(sys.argv) > 1 else "均线金叉"
+    from config import SELECTED_STRATEGY
 except ImportError:
     def mock_strategy(stock_code, df):
         if not df.empty and '涨跌幅' in df.columns:
@@ -63,9 +62,9 @@ def main():
         print("!!! 警告: 'stock_pool.csv' 未找到，股票名称可能无法显示。", file=sys.stderr)
         code_name_map = {}
 
-    strategy_func = STRATEGIES.get(selected_strategy)
+    strategy_func = STRATEGIES.get(SELECTED_STRATEGY)
     if not strategy_func:
-        print(f"!!! 错误: 在 STRATEGIES 中未找到名为 '{selected_strategy}' 的策略。", file=sys.stderr)
+        print(f"!!! 错误: 在 STRATEGIES 中未找到名为 '{SELECTED_STRATEGY}' 的策略。", file=sys.stderr)
         return
 
     grouped = aligned_hist.groupby('代码')
