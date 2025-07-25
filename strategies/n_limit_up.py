@@ -21,7 +21,7 @@ def is_selected(stock_code, combined_data):
             pct_change = day.get('涨跌幅', -1)
             date_str = day['日期'].strftime('%Y-%m-%d') if '日期' in day else '未知'
             if pct_change >= threshold:
-                print(f"🎯 {stock_code} 在 {date_str} 涨幅 {pct_change:.2f}% ≥ {threshold:.1f}%，✅ 符合条件")
+                print(f"[HIT] {stock_code} 在 {date_str} 涨幅 {pct_change:.2f}% ≥ {threshold:.1f}%，[OK] 符合条件")
                 return True, day['日期'], pct_change
         return False, None, None
 

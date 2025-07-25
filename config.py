@@ -11,5 +11,5 @@ MASTER_DATA_FILE = 'master_stock_data.feather'
 SNAPSHOT_FILE = 'snapshot_data.feather'
 STOCK_POOL_FILE = 'stock_pool.csv'
 
-N_CONSECUTIVE_DAYS = 1            # 默认连板天数
+N_CONSECUTIVE_DAYS = 1           # 默认连板天数
 DEBUG_STOCK_CODE = None           # 设置调试股票代码（如 '000514.SZ'）
