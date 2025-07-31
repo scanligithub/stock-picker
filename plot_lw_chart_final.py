@@ -49,7 +49,7 @@ async def plot_final_humble_chart(stock_code, days_to_plot=250):
         line = chart.create_line(line_name, color=colors[i], price_line=False, width=2)
         line.set(line_data)
 
-    await chart.show_async(open_browser=True)
+    await chart.show_async()
 
 
 if __name__ == "__main__":

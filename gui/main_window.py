@@ -404,7 +404,7 @@ class StockKLineViewer(QMainWindow):
 
         # --- 保持原始日K线数据，只在显示时控制标签密度 ---
 
-        price_ma_periods, volume_ma_periods = [5, 10, 20, 30], [5, 10, 20]
+        price_ma_periods, volume_ma_periods = [5, 30, 60], [5, 10, 20]
         for p in price_ma_periods:
             plot_df[f'MA{p}'] = plot_df['收盘'].rolling(window=p).mean()
         for p in volume_ma_periods:

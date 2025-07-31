@@ -20,8 +20,11 @@ except ImportError:
                 return True, df.iloc[-1]['日期'], latest_change
         return False, None, None
     STRATEGIES = {"mock_strategy": mock_strategy}
-    SELECTED_STRATEGY = "mock_strategy"
-    print("警告: 未找到 'strategies.py' 或 'config.py'，使用内置的模拟策略。", file=sys.stderr)
+    try:
+        from config import SELECTED_STRATEGY
+    except ImportError:
+        SELECTED_STRATEGY = "mock_strategy"
+        print("警告: 未找到 'strategies.py' 或 'config.py'，使用内置的模拟策略。", file=sys.stderr)
 
 
 def main():
@@ -50,8 +53,13 @@ def main():
     now = datetime.now()
     is_market_closed = now.hour >= 15
     today = now.date()
-    monday_of_week = today - timedelta(days=today.weekday())
-    start_date = datetime.combine(monday_of_week, datetime.min.time())
+    # For the MA strategy, we need at least 60 days of historical data
+    # For other strategies, we can use a weekly range
+    if SELECTED_STRATEGY == "ma_condition_strategy":
+        start_date = datetime.combine(today - timedelta(days=60), datetime.min.time())
+    else:
+        monday_of_week = today - timedelta(days=today.weekday())
+        start_date = datetime.combine(monday_of_week, datetime.min.time())
 
     print(f"\n--- 当前分析周期为: {start_date.strftime('%Y-%m-%d')} 至 {today.strftime('%Y-%m-%d')} ---\n", file=sys.stderr)
 
@@ -84,20 +92,72 @@ def main():
 
     for i, (stock_code, hist_data) in enumerate(progress_bar):
         try:
-            this_week_hist = hist_data[(hist_data['日期'] >= start_date) & (hist_data['日期'] < datetime.combine(today, datetime.min.time()))].copy()
+            # For the MA strategy, we need to ensure we have at least 60 data points
+            if SELECTED_STRATEGY == "ma_condition_strategy":
+                # Sort by date and take the last 60 data points
+                this_week_hist = hist_data.sort_values('日期').tail(60).copy()
+            # For the high volume strategy, we need at least 30 data points to calculate 20-day MA
+            elif SELECTED_STRATEGY == "high_volume_strategy":
+                # Sort by date and take the last 30 data points
+                this_week_hist = hist_data.sort_values('日期').tail(30).copy()
+            else:
+                this_week_hist = hist_data[(hist_data['日期'] >= start_date) & (hist_data['日期'] < datetime.combine(today, datetime.min.time()))].copy()
+            
             today_snapshot = snapshot_df[snapshot_df['代码'] == str(stock_code).upper()]
-            if today_snapshot.empty: continue
+            if today_snapshot.empty: 
+                continue
             today_snapshot = today_snapshot.assign(日期=pd.to_datetime(today))
-            this_week_combined = pd.concat([this_week_hist[['日期', '涨跌幅']], today_snapshot[['日期', '涨跌幅']]], ignore_index=True).drop_duplicates(subset=['日期'])
+            # 确保合并时包含成交量数据
+            hist_columns = ['日期', '涨跌幅', '收盘']
+            if '成交量' in this_week_hist.columns and '成交量' in today_snapshot.columns:
+                hist_columns.append('成交量')
+            this_week_combined = pd.concat([this_week_hist[hist_columns], today_snapshot[hist_columns]], ignore_index=True)
+            # 仅对历史数据去重，保留今日快照数据
+            # 修改去重逻辑：优先保留有成交量数据的记录
+            if '成交量' in this_week_combined.columns:
+                # 创建一个标记列，标识哪些行有成交量数据
+                this_week_combined['has_volume'] = this_week_combined['成交量'].notna()
+                # 按日期分组，优先保留有成交量的记录
+                this_week_combined = this_week_combined.sort_values(['日期', 'has_volume'], ascending=[True, False]).drop_duplicates(subset=['日期'], keep='first')
+                # 删除辅助列
+                this_week_combined.drop(columns=['has_volume'], inplace=True)
+            else:
+                this_week_combined.drop_duplicates(subset=['日期'], keep='last', inplace=True)
             this_week_combined.sort_values(by='日期', inplace=True)
             latest_close = today_snapshot.iloc[-1].get('收盘')
             if pd.isna(latest_close): continue
             result = strategy_func(stock_code, this_week_combined)
-            if isinstance(result, tuple) and len(result) == 3: is_selected_flag, trigger_date, change_percent = result
-            elif isinstance(result, bool): is_selected_flag, trigger_date, change_percent = result, None, None
-            else: is_selected_flag = False
+            # 处理策略返回的不同格式
+            if isinstance(result, tuple):
+                # 确保至少有3个元素
+                if len(result) >= 3:
+                    # 新格式 (is_selected_flag, today_volume, yesterday_volume, ...)
+                    is_selected_flag = result[0]
+                    today_volume = result[1] if len(result) > 1 else None
+                    yesterday_volume = result[2] if len(result) > 2 else None
+                    # 如果有额外的参数，假设第4个是trigger_date，第5个是change_percent
+                    trigger_date = result[3] if len(result) > 3 else None
+                    change_percent = result[4] if len(result) > 4 else None
+                else:
+                    is_selected_flag = result[0] if result else False
+                    today_volume = yesterday_volume = trigger_date = change_percent = None
+            elif isinstance(result, bool):
+                is_selected_flag, trigger_date, change_percent = result, None, None
+                today_volume = yesterday_volume = None
+            else:
+                is_selected_flag = False
+                today_volume = yesterday_volume = trigger_date = change_percent = None
+            
             if is_selected_flag:
-                result_dict = {'ts_code': stock_code, '名称': code_name_map.get(stock_code, ''), '最后触发日期': trigger_date.strftime('%Y-%m-%d') if trigger_date else today.strftime('%Y-%m-%d'), '当前股价': round(latest_close, 2), '涨跌幅%': round(change_percent, 2) if pd.notna(change_percent) else None}
+                result_dict = {
+                    'ts_code': stock_code, 
+                    '名称': code_name_map.get(stock_code, ''), 
+                    '最后触发日期': trigger_date.strftime('%Y-%m-%d') if isinstance(trigger_date, (datetime, pd.Timestamp)) else today.strftime('%Y-%m-%d'), 
+                    '当前股价': round(latest_close, 2), 
+                    '涨跌幅%': round(change_percent, 2) if pd.notna(change_percent) else None,
+                    '当天成交量': int(today_volume) if today_volume is not None else None,
+                    '上一交易日成交量': int(yesterday_volume) if yesterday_volume is not None else None
+                }
                 selected_stocks.append(result_dict)
         except Exception as e:
             progress_bar.write(f"Error processing {stock_code}: {e}")

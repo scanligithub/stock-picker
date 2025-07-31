@@ -147,4 +147,20 @@ def get_clean_snapshot_data(cache_file=None, force_refresh=False, max_retries=3)
             attempt += 1
 
     print("🚫 达到最大重试次数，跳过本次快照获取")
+    # 尝试使用缓存数据
+    if os.path.exists(cache_file):
+        try:
+            df = pd.read_csv(cache_file)
+            print(f"[SUCCESS] 使用缓存快照数据")
+            # 检查并转换缓存数据的成交量单位
+            if '成交量' in df.columns:
+                median_volume = df['成交量'].median()
+                if median_volume < 1000 and median_volume > 0:
+                    df['成交量'] = df['成交量'] * 100
+                    print(f"[DEBUG] 缓存数据转换: {median_volume} → {median_volume*100} (手→股)")
+                else:
+                    print(f"[DEBUG] 缓存成交量样本: {df['成交量'].iloc[0]}")
+            return df[['代码', '日期', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '涨跌幅']]
+        except Exception as e:
+            print(f"[ERROR] 缓存数据读取失败: {e}")
     return None
