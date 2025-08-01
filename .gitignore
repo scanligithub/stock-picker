@@ -205,4 +205,3 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Stock data files
-master_stock_data.feather1
