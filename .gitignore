@@ -206,6 +206,3 @@ __marimo__/
 
 # Stock data files
 master_stock_data.feather1
-snapshot_cache.csv
-stock_pool.csv
-js/plotly.min.js
