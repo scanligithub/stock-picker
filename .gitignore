@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 *.feather
+master_stock_data.feather1
 __pycache__/
 *.py[codz]
 *$py.class
