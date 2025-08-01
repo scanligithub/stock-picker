@@ -203,3 +203,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Stock data files
+master_stock_data.feather1
