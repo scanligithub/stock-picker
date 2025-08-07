@@ -4,7 +4,8 @@
 # SELECTED_STRATEGY = "ma_crossover"  # 改成你要使用的策略名
 # SELECTED_STRATEGY = "high_price_filter" 
 # SELECTED_STRATEGY = "ma_condition_strategy"
-SELECTED_STRATEGY = "high_volume_strategy"
+# SELECTED_STRATEGY = "high_volume_strategy"
+SELECTED_STRATEGY = "week_ma_arrangement"
 MAX_RETRIES = 3                   # 接口最大重试次数
 MIN_INTERVAL = 2                  # 初始请求间隔（秒）
 MAX_INTERVAL = 60                 # 最大请求间隔（秒）

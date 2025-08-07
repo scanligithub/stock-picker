@@ -5,6 +5,7 @@ from .ma_crossover import is_selected as ma_crossover_strategy
 from .high_price_filter import is_selected as high_price_filter_strategy
 from .ma_condition_strategy import is_selected as ma_condition_strategy
 from .high_volume_strategy import is_selected as high_volume_strategy
+from .week_ma_arrangement import is_selected as week_ma_arrangement_strategy
 
 STRATEGIES = {
     "n_limit_up": n_limit_up_strategy,
@@ -12,4 +13,5 @@ STRATEGIES = {
     "high_price_filter": high_price_filter_strategy,
     "ma_condition_strategy": ma_condition_strategy,
     "high_volume_strategy": high_volume_strategy,
+    "week_ma_arrangement": week_ma_arrangement_strategy,
 }

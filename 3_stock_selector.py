@@ -57,6 +57,9 @@ def main():
     # For other strategies, we can use a weekly range
     if SELECTED_STRATEGY == "ma_condition_strategy":
         start_date = datetime.combine(today - timedelta(days=60), datetime.min.time())
+    elif SELECTED_STRATEGY == "week_ma_arrangement":
+        # 对于周K线多头排列策略，需要至少300天的数据来计算周线MA30
+        start_date = datetime.combine(today - timedelta(days=300), datetime.min.time())
     else:
         monday_of_week = today - timedelta(days=today.weekday())
         start_date = datetime.combine(monday_of_week, datetime.min.time())
@@ -100,6 +103,10 @@ def main():
             elif SELECTED_STRATEGY == "high_volume_strategy":
                 # Sort by date and take the last 30 data points
                 this_week_hist = hist_data.sort_values('日期').tail(30).copy()
+            # For the week MA arrangement strategy, we need at least 300 data points
+            elif SELECTED_STRATEGY == "week_ma_arrangement":
+                # Sort by date and take the last 300 data points
+                this_week_hist = hist_data.sort_values('日期').tail(300).copy()
             else:
                 this_week_hist = hist_data[(hist_data['日期'] >= start_date) & (hist_data['日期'] < datetime.combine(today, datetime.min.time()))].copy()
             
