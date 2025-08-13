@@ -2,11 +2,12 @@ import sys
 import os
 import pathlib
 import pandas as pd
-import json # 引入json库
+import json  # 引入json库
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QListWidget, QHBoxLayout,
                              QVBoxLayout, QWidget, QPushButton, QProgressBar, QTextEdit, QLabel)
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import Qt, QProcess, QTimer, QUrl
+from PyQt5.QtWebEngineWidgets import QWebEngineSettings
 
 
 def debug_print(*args):
@@ -118,10 +119,7 @@ def load_combined_data(stock_code):
         combined.dropna(subset=numeric_cols, inplace=True)
         combined.reset_index(drop=True, inplace=True)
         
-        if not combined.empty:
-            six_months_ago = pd.to_datetime('today').normalize() - pd.DateOffset(months=6)
-            combined = combined[combined['日期'] >= six_months_ago].copy()
-            
+        # 移除6个月数据限制，使用全部可用数据
         return combined
     except Exception as e:
         debug_print(f"load_combined_data 出错: {e}")
@@ -181,6 +179,10 @@ class StockKLineViewer(QMainWindow):
         self.log_window = QTextEdit(); self.log_window.setReadOnly(True); self.log_window.setFixedHeight(150); left_panel_layout.addWidget(self.log_window)
         left_panel = QWidget(); left_panel.setLayout(left_panel_layout); left_panel.setMaximumWidth(300)
         self.browser = QWebEngineView()
+        # 启用JavaScript和本地文件访问
+        self.browser.settings().setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+        self.browser.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, False)
+        self.browser.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
         main_layout = QHBoxLayout(); main_layout.addWidget(left_panel); main_layout.addWidget(self.browser, 1)
         container = QWidget(); container.setLayout(main_layout); self.setCentralWidget(container)
         if not self.stock_pool.empty: self.stock_list.setCurrentRow(0)
@@ -235,8 +237,17 @@ class StockKLineViewer(QMainWindow):
             stock_code = current.text().split(" - ")[0]
             try:
                 df = load_combined_data(stock_code)
-                if df.empty or len(df) < 30:
-                    self.browser.setHtml(f"<html><body><h1>股票 {stock_code} 数据不足30天</h1></body></html>")
+                debug_print(f"加载的股票 {stock_code} 数据量: {len(df)} 行")
+                if not df.empty:
+                    debug_print(f"数据日期范围: {df['日期'].min()} 到 {df['日期'].max()}")
+                
+                if df.empty:
+                    debug_print(f"股票 {stock_code} 数据为空")
+                    self.browser.setHtml(f"<html><body><h1>股票 {stock_code} 数据为空</h1></body></html>")
+                    return
+                elif len(df) < 30:
+                    debug_print(f"股票 {stock_code} 数据不足30天 ({len(df)}行)")
+                    self.browser.setHtml(f"<html><body><h1>股票 {stock_code} 数据不足30天 ({len(df)}行)</h1><p>日期范围: {df['日期'].min()} 到 {df['日期'].max()}</p></body></html>")
                     return
                 
                 chart_config = self.prepare_klinechart_data(df, stock_code)
@@ -251,16 +262,28 @@ class StockKLineViewer(QMainWindow):
         debug_print(f"为 KLineCharts 准备数据: {stock_code}")
         plot_df = df.copy()
         
+        # 确保日期列是datetime类型
+        if not pd.api.types.is_datetime64_any_dtype(plot_df['日期']):
+            plot_df['日期'] = pd.to_datetime(plot_df['日期'])
+            debug_print("已将日期列转换为datetime类型")
+        
         kline_data = []
         for _, row in plot_df.iterrows():
+            # 检查时间戳生成
+            timestamp_ms = int(row['日期'].timestamp() * 1000)
+            
             kline_data.append({
-                'timestamp': int(row['日期'].timestamp() * 1000),
+                'timestamp': timestamp_ms,
                 'open': float(row['开盘']),
                 'high': float(row['最高']),
                 'low': float(row['最低']),
                 'close': float(row['收盘']),
                 'volume': float(row['成交量'])
             })
+            
+            # 打印前几行数据用于调试
+            if len(kline_data) <= 3:
+                debug_print(f"准备的数据行 {len(kline_data)}: {kline_data[-1]}")
 
         stock_name_series = self.stock_pool[self.stock_pool['ts_code'] == stock_code]['name']
         stock_name = stock_name_series.iloc[0] if not stock_name_series.empty else stock_code
@@ -268,6 +291,7 @@ class StockKLineViewer(QMainWindow):
         # 定义您需要的均线周期
         price_ma_periods = [5, 10, 20, 30]
         
+        debug_print(f"共准备 {len(kline_data)} 行K线数据")
         return {
             'klineData': kline_data,
             'stockName': stock_name,
@@ -275,23 +299,37 @@ class StockKLineViewer(QMainWindow):
             'priceMaPeriods': price_ma_periods
         }
 
-    # +++ 修复后的 show_klinechart 方法 +++
+    # +++ 更新后的 show_klinechart 方法 +++
     def show_klinechart(self, config):
         debug_print("显示 KLineChart")
         
-        kline_data_js = json.dumps(config['klineData'])
-        stock_name_js = json.dumps(config['stockName'])
-        stock_code_js = json.dumps(config['stockCode'])
-        price_ma_periods_js = json.dumps(config['priceMaPeriods'])
+        # 打印配置信息用于调试
+        debug_print(f"K线数据量: {len(config['klineData'])} 行")
+        debug_print(f"股票名称: {config['stockName']}")
+        debug_print(f"股票代码: {config['stockCode']}")
+        debug_print(f"均线周期: {config['priceMaPeriods']}")
+        
+        # 确保数据正确序列化
+        try:
+            kline_data_js = json.dumps(config['klineData'], ensure_ascii=False)
+            stock_name_js = json.dumps(config['stockName'], ensure_ascii=False)
+            stock_code_js = json.dumps(config['stockCode'], ensure_ascii=False)
+            price_ma_periods_js = json.dumps(config['priceMaPeriods'])
+            debug_print("数据序列化成功")
+            debug_print("序列化后的kline_data_js示例:", kline_data_js[:200] + "..." if len(kline_data_js) > 200 else kline_data_js)
+        except Exception as e:
+            debug_print(f"数据序列化错误: {e}")
+            self.browser.setHtml(f"<h1>错误: 数据序列化失败</h1><p>{e}</p>")
+            return
         
         js_path = os.path.join(self.project_root, 'js', 'klinecharts.min.js')
-        
-        try:
-            with open(js_path, 'r', encoding='utf-8') as f:
-                klinecharts_js_code = f.read()
-        except FileNotFoundError:
+        if not os.path.exists(js_path):
+            debug_print(f"错误: 未找到本地文件 {js_path}")
             self.browser.setHtml(f"<h1>错误: 未找到 klinecharts.min.js</h1><p>请确保文件存在于: {js_path}</p>")
             return
+
+        # 生成相对路径并替换反斜杠
+        relative_js_path = os.path.relpath(js_path, self.project_root).replace('\\', '/')
 
         html_content = f"""
         <!DOCTYPE html>
@@ -300,53 +338,81 @@ class StockKLineViewer(QMainWindow):
             <meta charset="utf-8">
             <title>KLineChart</title>
             <style>
-                body {{ margin: 0; padding: 0; overflow: hidden; }}
-                #kline-chart-container {{
-                    width: 100vw;
-                    height: 100vh;
-                }}
+                html, body {{ margin: 0; padding: 0; overflow: hidden; height: 100%; }}
+                #kline-chart-container {{ width: 100%; height: 100%; }}
             </style>
         </head>
         <body>
             <div id="kline-chart-container"></div>
+            <script src="{relative_js_path}"></script>
             <script>
-                {klinecharts_js_code}
-            </script>
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {{
+                window.onload = function() {{
+                    console.log('KLineChart 初始化开始');
+                    const klineData = {kline_data_js};
+                    console.log('加载的数据:', klineData.slice(0, 3));
+
+                    // 初始化图表
                     const chart = klinecharts.init('kline-chart-container', {{
+                        chartType: 'candle',
+                        width: '100%',
+                        height: '100%',
                         header: {{
-                           display: true,
-                           title: '{{shortName}}  {{symbol}}'
+                            display: true,
+                            title: {{
+                                text: {stock_name_js} + '  ' + {stock_code_js}
+                            }}
                         }}
                     }});
-                    
-                    chart.applyNewData({kline_data_js}, true, {{
-                        shortName: {stock_name_js},
-                        symbol: {stock_code_js}
+
+                    // 应用数据
+                    if (Array.isArray(klineData)) {{
+                        try {{
+                            chart.applyNewData(klineData);
+                            console.log('数据应用成功');
+                        }} catch (e) {{
+                            console.error('数据应用失败:', e);
+                        }}
+                    }} else {{
+                        console.error('数据格式错误:', klineData);
+                    }}
+
+                    // 设置实心蜡烛图样式
+                    chart.setStyles({{
+                        candle: {{
+                            upColor: '#2DC08E',
+                            downColor: '#F92855',
+                            borderColor: '#2DC08E',
+                            borderDownColor: '#F92855',
+                            wickColor: '#737375',
+                            wickDownColor: '#737375',
+                            hollow: false
+                        }}
                     }});
-                    
-                    // +++ 最终修复: 一次性创建MA指标，并传入所有周期 +++
+
+                    // 动态调整尺寸
+                    chart.resize(window.innerWidth, window.innerHeight);
+                    console.log('图表尺寸:', window.innerWidth, 'x', window.innerHeight);
+
+                    // 创建 MA 指标
                     const priceMaPeriods = {price_ma_periods_js};
-                    
-                    // 1. 创建一次 MA 指标
-                    chart.createIndicator(
-                        {{ 
-                            name: 'MA', 
-                            // 2. 将所有周期 [5, 10, 20, 30] 作为 calcParams 数组传入
-                            calcParams: priceMaPeriods 
-                        }}, 
-                        false, 
-                        {{ id: 'candle_pane' }}
-                    );
-                    
+                    chart.createIndicator('MA', false, {{ id: 'candle_pane', calcParams: priceMaPeriods }});
+
                     // 创建 VOL 指标
-                    chart.createIndicator({{ name: 'VOL' }}, false, {{ id: 'volume_pane' }});
-                }});
+                    chart.createIndicator('VOL', false, {{ id: 'volume_pane' }});
+
+                    console.log('KLineChart 初始化完成');
+                }};
             </script>
         </body>
         </html>
         """
+
+        # 调试: 保存生成的HTML内容到文件
+        debug_html_path = os.path.join(self.project_root, 'debug_klinechart.html')
+        with open(debug_html_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        debug_print(f"调试HTML已保存到: {debug_html_path}")
+
         self.browser.setHtml(html_content, baseUrl=QUrl.fromLocalFile(self.project_root + os.sep))
 
 
